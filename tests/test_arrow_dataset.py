@@ -218,7 +218,28 @@ class BaseDatasetTest(TestCase):
         self.assertListEqual(list(dset.features.keys()), ["a.b.c", "foo"])
         self.assertDictEqual(dset.features, Features({"a.b.c": Sequence(Value("string")), "foo": Value("int64")}))
 
-    def test_map(self):
+    def test_map_not_cached(self):
+        dset = self._create_dummy_dataset()
+
+        self.assertDictEqual(dset.features, Features({"filename": Value("string")}))
+        dset_test = dset.map(
+            lambda x: {"name": x["filename"][:-2], "id": int(x["filename"][-1])}, cache_file_name=None
+        )
+        self.assertEqual(len(dset_test), 30)
+        self.assertDictEqual(dset.features, Features({"filename": Value("string")}))
+        self.assertDictEqual(
+            dset_test.features, Features({"filename": Value("string"), "name": Value("string"), "id": Value("int64")}),
+        )
+
+        self.assertDictEqual(dset.features, Features({"filename": Value("string")}))
+        dset_test = dset.map(lambda x: None, cache_file_name=None)
+        self.assertEqual(len(dset_test), 30)
+        self.assertDictEqual(dset.features, Features({"filename": Value("string")}))
+        self.assertDictEqual(
+            dset_test.features, Features({"filename": Value("string")}),
+        )
+
+    def test_map_cached(self):
         dset = self._create_dummy_dataset()
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_file = os.path.join(tmp_dir, "test.arrow")
@@ -319,6 +340,57 @@ class BaseDatasetTest(TestCase):
                 dset_test_with_indices_batched.features,
                 Features({"filename": Value("string"), "filename_new": Value("string")}),
             )
+
+    @require_torch
+    def test_map_torch(self):
+        import torch
+
+        dset = self._create_dummy_dataset()
+
+        def func(example):
+            return {"tensor": torch.Tensor([1.0, 2, 3])}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_file = os.path.join(tmp_dir, "test.arrow")
+            dset_test = dset.map(func, cache_file_name=tmp_file)
+            self.assertEqual(len(dset_test), 30)
+            self.assertDictEqual(
+                dset_test.features, Features({"filename": Value("string"), "tensor": Sequence(Value("float64"))})
+            )
+            self.assertListEqual(dset_test[0]["tensor"], [1, 2, 3])
+
+    @require_tf
+    def test_map_tf(self):
+        import tensorflow as tf
+
+        dset = self._create_dummy_dataset()
+
+        def func(example):
+            return {"tensor": tf.constant([1.0, 2, 3])}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_file = os.path.join(tmp_dir, "test.arrow")
+            dset_test = dset.map(func, cache_file_name=tmp_file)
+            self.assertEqual(len(dset_test), 30)
+            self.assertDictEqual(
+                dset_test.features, Features({"filename": Value("string"), "tensor": Sequence(Value("float64"))})
+            )
+            self.assertListEqual(dset_test[0]["tensor"], [1, 2, 3])
+
+    def test_map_numpy(self):
+        dset = self._create_dummy_dataset()
+
+        def func(example):
+            return {"tensor": np.array([1.0, 2, 3])}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_file = os.path.join(tmp_dir, "test.arrow")
+            dset_test = dset.map(func, cache_file_name=tmp_file)
+            self.assertEqual(len(dset_test), 30)
+            self.assertDictEqual(
+                dset_test.features, Features({"filename": Value("string"), "tensor": Sequence(Value("float64"))})
+            )
+            self.assertListEqual(dset_test[0]["tensor"], [1, 2, 3])
 
     def test_remove_colums(self):
         dset = self._create_dummy_dataset()
